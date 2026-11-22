@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       variants:
-        description: "JSON array of variants. Default: ksun-legacy + sukisu-susfs. bakasu is EXPERIMENTAL (needs manual hook port) and can be added manually."
+        description: "JSON array of variants. Default: sukisu-susfs only. bakasu is EXPERIMENTAL (needs manual hook port); ksun-legacy can be added manually."
         required: true
         type: string
-        default: '["ksun-legacy","sukisu-susfs"]'
+        default: '["sukisu-susfs"]'
       kernel_repo:
         description: "Kernel source repository"
         required: true
@@ -564,25 +564,36 @@ jobs:
         if: ${{ matrix.variant == 'sukisu-susfs' }}
         run: |
           set -euo pipefail
-          # Try GitHub first; the official docs host setup.sh on a self-hosted
-          # mirror - fall back to it if GitHub 404s.
-          if ! curl -fLSs \
-              "https://raw.githubusercontent.com/SukiSU-Nova/SukiSU-Nova/$SUKISU_REF/kernel/setup.sh" \
-              -o sukisu_setup.sh; then
-            echo "GitHub raw 404 - falling back to the official mirror"
-            curl -fLSs \
-              "https://git.zako.shirkneko.top:20004/shirkneko/SukiSU/raw/branch/main/kernel/setup.sh" \
-              -o sukisu_setup.sh
+          cd kernel
+          # 1) This Flicker tree ships its OWN old KernelSU copy at
+          #    drivers/kernelsu (a real directory: allowlist.c, apk_sign.c,
+          #    ksu.c, sucompat.c ...). It must be removed, otherwise the
+          #    integration below cannot take effect (and upstream setup.sh
+          #    would silently 'skip' because the dir already exists).
+          if [ -e drivers/kernelsu ] && [ ! -L drivers/kernelsu ]; then
+            rm -rf drivers/kernelsu
+            echo 'removed bundled legacy drivers/kernelsu'
           fi
-          sha256sum sukisu_setup.sh
-          (cd kernel && sh ../sukisu_setup.sh "$SUKISU_REF")
-
-          test -f kernel/drivers/kernelsu/Makefile
-          grep -q 'obj-$(CONFIG_KSU)' kernel/drivers/Makefile || \
-            printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> kernel/drivers/Makefile
-          grep -q 'drivers/kernelsu/Kconfig' kernel/drivers/Kconfig || \
-            sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' kernel/drivers/Kconfig
-          ls -ld kernel/drivers/kernelsu
+          # 2) Upstream setup.sh is buggy: it clones the repo into
+          #    ./SukiSU-Nova but then does `cd "$GKI_ROOT/KernelSU"`, so it
+          #    aborts with "can't cd". Do the integration manually instead.
+          rm -rf SukiSU-Nova
+          git clone --depth 1 -b "$SUKISU_REF" "$SUKISU_REPO" SukiSU-Nova
+          ln -sfn "$(realpath --relative-to=drivers SukiSU-Nova/kernel)" drivers/kernelsu
+          # drivers/Makefile + drivers/Kconfig already carry the KSU
+          # references from the bundled legacy integration - verify, and add
+          # them only if missing.
+          grep -q 'kernelsu' drivers/Makefile || \
+            printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
+          grep -q 'drivers/kernelsu/Kconfig' drivers/Kconfig || \
+            sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          ls -ld drivers/kernelsu
+          readlink -f drivers/kernelsu
+          test -f drivers/kernelsu/Kconfig
+          test -f drivers/kernelsu/Makefile
+          test -f drivers/kernelsu/ksu.c
+          test -f drivers/kernelsu/feature/sucompat.c
+          echo 'OK: SukiSU-Nova integrated (upstream setup.sh bug bypassed)'
 
       # SUSFS needs its OWN kernel-side patches (susfs4ksu). The
       # KSU_SUSFS_INLINE_HOOK backend (the ONLY hook backend when SUSFS is
