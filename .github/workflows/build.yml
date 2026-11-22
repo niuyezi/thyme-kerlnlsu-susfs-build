@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       variants:
-        description: "JSON array of variants. Default: sukisu-susfs only. bakasu is EXPERIMENTAL (needs manual hook port); ksun-legacy can be added manually."
+        description: "JSON array of variants. Default: ksun-susfs (bundled KernelSU-Next + SUSFS). ksun-legacy = no SUSFS; bakasu = EXPERIMENTAL."
         required: true
         type: string
-        default: '["sukisu-susfs"]'
+        default: '["ksun-susfs"]'
       kernel_repo:
         description: "Kernel source repository"
         required: true
@@ -96,7 +96,7 @@ jobs:
           echo "=============================================="
           case "$VARIANT" in
             ksun-legacy)   echo " KernelSU-Next legacy (syscall-table hook, NO SUSFS) - VERIFIED path";;
-            sukisu-susfs)  echo " SukiSU-Nova builtin + SUSFS (branch-link hook)";;
+            ksun-susfs)    echo " Bundled KernelSU-Next + SUSFS (susfs4ksu official scheme)";;
             bakasu)        echo " BakaSU (formerly ReSukiSU) - UNVERIFIED, asserts will validate";;
             *) echo "Unknown variant: $VARIANT"; exit 1;;
           esac
@@ -560,40 +560,24 @@ jobs:
       # =====================================================================
       # Variant 2: SukiSU-Nova builtin + SUSFS
       # =====================================================================
-      - name: '[sukisu] Integrate SukiSU-Nova (builtin-new)'
-        if: ${{ matrix.variant == 'sukisu-susfs' }}
+      - name: '[ksun-susfs] Apply SUSFS to bundled KernelSU-Next'
+        if: ${{ matrix.variant == 'ksun-susfs' }}
         run: |
           set -euo pipefail
-          cd kernel
-          # 1) This Flicker tree ships its OWN old KernelSU copy at
-          #    drivers/kernelsu (a real directory: allowlist.c, apk_sign.c,
-          #    ksu.c, sucompat.c ...). It must be removed, otherwise the
-          #    integration below cannot take effect (and upstream setup.sh
-          #    would silently 'skip' because the dir already exists).
-          if [ -e drivers/kernelsu ] && [ ! -L drivers/kernelsu ]; then
-            rm -rf drivers/kernelsu
-            echo 'removed bundled legacy drivers/kernelsu'
-          fi
-          # 2) Upstream setup.sh is buggy: it clones the repo into
-          #    ./SukiSU-Nova but then does `cd "$GKI_ROOT/KernelSU"`, so it
-          #    aborts with "can't cd". Do the integration manually instead.
-          rm -rf SukiSU-Nova
-          git clone --depth 1 -b "$SUKISU_REF" "$SUKISU_REPO" SukiSU-Nova
-          ln -sfn "$(realpath --relative-to=drivers SukiSU-Nova/kernel)" drivers/kernelsu
-          # drivers/Makefile + drivers/Kconfig already carry the KSU
-          # references from the bundled legacy integration - verify, and add
-          # them only if missing.
-          grep -q 'kernelsu' drivers/Makefile || \
-            printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
-          grep -q 'drivers/kernelsu/Kconfig' drivers/Kconfig || \
-            sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
-          ls -ld drivers/kernelsu
-          readlink -f drivers/kernelsu
-          test -f drivers/kernelsu/Kconfig
-          test -f drivers/kernelsu/Makefile
-          test -f drivers/kernelsu/ksu.c
-          test -f drivers/kernelsu/feature/sucompat.c
-          echo 'OK: SukiSU-Nova integrated (upstream setup.sh bug bypassed)'
+          # This Flicker tree already bundles a KernelSU-Next copy at
+          # drivers/kernelsu whose source layout matches susfs4ksu's KSU-side
+          # patch (10_enable_susfs_for_ksu.patch). KEEP it and apply our
+          # pre-adapted version (patches/susfs-ksu-thyme.patch): 4 hunks were
+          # adapted to this tree (function renames, extra system_ext umount
+          # target, signature-table manager check, dedup Makefile).
+          # The patch adds KSU_SUSFS* Kconfig options + SUSFS support code.
+          cd kernel/drivers/kernelsu
+          patch -p2 --forward --no-backup-if-mismatch < ../../../patches/susfs-ksu-thyme.patch
+          grep -q 'config KSU_SUSFS' Kconfig
+          grep -q 'ksu_apply_kernelsu_rules' selinux/rules.c
+          grep -q 'ksu_is_manager_apk' apk_sign.c
+          grep -q 'susfs_try_umount_all' core_hook.c
+          echo 'OK: bundled KernelSU-Next patched with SUSFS support'
 
       # SUSFS needs its OWN kernel-side patches (susfs4ksu). The
       # KSU_SUSFS_INLINE_HOOK backend (the ONLY hook backend when SUSFS is
@@ -608,8 +592,8 @@ jobs:
       # apply on the exact Flicker sources at KERNEL_REF.
       # NOTE: KSU_HACK_ARM64_BRANCH_LINK / KSU_TAMPER_SYSCALL_TABLE both
       # 'depends on !KSU_SUSFS' - mutually exclusive with SUSFS.
-      - name: '[sukisu] Apply SUSFS kernel patches (pre-adapted for thyme)'
-        if: ${{ matrix.variant == 'sukisu-susfs' }}
+      - name: '[ksun-susfs] Apply SUSFS kernel patches (pre-adapted for thyme)'
+        if: ${{ matrix.variant == 'ksun-susfs' }}
         run: |
           set -euo pipefail
           # susfs userspace-facing sources (fs/susfs.c, fs/sus_su.c and
@@ -629,30 +613,8 @@ jobs:
           grep -q 'susfs_sus_ino_for_show_map_vma' fs/proc/task_mmu.c
           echo "OK: SUSFS pre-adapted patch applied cleanly, susfs sources in place"
 
-      - name: '[sukisu] Assert SUSFS inline-hook support'
-        if: ${{ matrix.variant == 'sukisu-susfs' }}
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          ksu = Path('kernel/drivers/kernelsu')
-          assert ksu.is_dir(), 'SukiSU driver dir missing'
-          real = ksu.resolve()
-          print('SukiSU source dir:', real)
-
-          kconfig = real / 'Kconfig'
-          assert kconfig.is_file(), 'Kconfig missing'
-          t = kconfig.read_text(encoding='utf-8', errors='replace')
-          assert 'CONFIG_KSU_SUSFS' in t, \
-              'this SukiSU-Nova ref does not carry SUSFS options - use the builtin-new branch'
-          print('OK: SUSFS options present in Kconfig')
-          assert 'KSU_SUSFS_INLINE_HOOK' in t, \
-              'KSU_SUSFS_INLINE_HOOK not offered by this ref - use builtin-new'
-          print('OK: SUSFS inline-hook backend available')
-          PY
-
-      - name: '[sukisu] Prepare config'
-        if: ${{ matrix.variant == 'sukisu-susfs' }}
+      - name: '[ksun-susfs] Prepare config'
+        if: ${{ matrix.variant == 'ksun-susfs' }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -667,27 +629,26 @@ jobs:
               return False
           out = [l for l in src if not is_ksu(l)]
           out = [l for l in out if not l.split('=')[0].strip().startswith('CONFIG_KPM')]
-          # Only symbols that REALLY exist in the builtin-new Kconfig.
-          # SUS_SU / SUS_KSTAT_EXTEND / AUTO_ADD_SUS_* were SukiSU-Ultra era
-          # options and do NOT exist in SukiSU-Nova (writing them would be
-          # silently dropped by olddefconfig). BRANCH_LINK and
-          # TAMPER_SYSCALL_TABLE are mutually exclusive with SUSFS.
+          # Option set matches susfs4ksu v1.5.5 (the version whose
+          # 50_add/10_enable patches we apply). These are added to the bundled
+          # KernelSU Kconfig by patches/susfs-ksu-thyme.patch.
           out += [
               'CONFIG_KSU=y',
-              '# CONFIG_KSU_HACK_ARM64_BRANCH_LINK is not set',
-              '# CONFIG_KSU_TAMPER_SYSCALL_TABLE is not set',
               'CONFIG_KSU_SUSFS=y',
-              'CONFIG_KSU_SUSFS_INLINE_HOOK=y',
-              'CONFIG_KSU_SUSFS_SUS_MOUNT=y',
-              'CONFIG_KSU_SUSFS_SUS_KSTAT=y',
+              'CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y',
               'CONFIG_KSU_SUSFS_SUS_PATH=y',
+              'CONFIG_KSU_SUSFS_SUS_MOUNT=y',
+              'CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y',
+              'CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y',
+              'CONFIG_KSU_SUSFS_SUS_KSTAT=y',
+              'CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y',
+              'CONFIG_KSU_SUSFS_TRY_UMOUNT=y',
+              'CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y',
               'CONFIG_KSU_SUSFS_SPOOF_UNAME=y',
-              'CONFIG_KSU_SUSFS_ENABLE_LOG=y',
+              '# CONFIG_KSU_SUSFS_ENABLE_LOG is not set',
               'CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y',
               'CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y',
               'CONFIG_KSU_SUSFS_OPEN_REDIRECT=y',
-              'CONFIG_KSU_SUSFS_SUS_MAP=y',
-              'CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y',
               '# CONFIG_KPM is not set',
           ]
           Path('input/device-variant.config').write_text('\n'.join(out) + '\n', encoding='utf-8')
@@ -820,13 +781,13 @@ jobs:
               grep -q '^CONFIG_KSU_SYSCALL_TABLE_HOOK=y' ../out/final/.config || {
                 echo "FAIL: CONFIG_KSU_SYSCALL_TABLE_HOOK did not resolve to y"; exit 1; }
               ;;
-            sukisu-susfs)
+            ksun-susfs)
               grep -q '^CONFIG_KSU_SUSFS=y' ../out/final/.config || {
                 echo "FAIL: CONFIG_KSU_SUSFS did not resolve to y"; exit 1; }
-              grep -q '^CONFIG_KSU_SUSFS_INLINE_HOOK=y' ../out/final/.config || {
-                echo "FAIL: CONFIG_KSU_SUSFS_INLINE_HOOK did not resolve to y"; exit 1; }
-              if grep -q '^CONFIG_KSU_HACK_ARM64_BRANCH_LINK=y' ../out/final/.config; then
-                echo "FAIL: BRANCH_LINK must stay OFF (mutually exclusive with SUSFS)"; exit 1; }
+              grep -q '^CONFIG_KSU_SUSFS_SUS_PATH=y' ../out/final/.config || {
+                echo "FAIL: CONFIG_KSU_SUSFS_SUS_PATH did not resolve to y"; exit 1; }
+              grep -q '^CONFIG_KSU_SUSFS_SUS_MOUNT=y' ../out/final/.config || {
+                echo "FAIL: CONFIG_KSU_SUSFS_SUS_MOUNT did not resolve to y"; exit 1; }
               ;;
             bakasu)
               grep -q '^CONFIG_KSU_HACK_ARM64_BRANCH_LINK=y' ../out/final/.config || {
