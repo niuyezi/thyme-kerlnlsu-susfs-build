@@ -140,7 +140,7 @@ index cdf8b33..9421329 100644
 +
  endmenu
 diff --git a/kernel/Makefile b/kernel/Makefile
-index 794b313..0064a35 100644
+index 794b313..bea36c8 100644
 --- a/kernel/Makefile
 +++ b/kernel/Makefile
 @@ -45,14 +45,77 @@ endif
@@ -174,7 +174,7 @@ index 794b313..0064a35 100644
  
 -ccflags-y += -Wno-implicit-function-declaration -Wno-strict-prototypes -Wno-int-conversion -Wno-gcc-compat
 -ccflags-y += -Wno-declaration-after-statement -Wno-unused-function
-+ifneq ($(shell grep -Eq "^static int can_umount" $(srctree)/fs/namespace.c; echo $$?),0)
++ifneq ($(shell grep -Eq "can_umount(const struct path" $(srctree)/fs/namespace.c; echo $$?),0)
 +$(info -- KSU_SUSFS: adding function 'static int can_umount(const struct path *path, int flags);' to $(srctree)/fs/namespace.c)
 +CAN_UMOUNT = static int can_umount(const struct path *path, int flags)\n\
 +{\n\t\
