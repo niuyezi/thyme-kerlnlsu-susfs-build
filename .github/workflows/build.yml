@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       variants:
-        description: "Comma-separated variants to build: ksun-legacy, sukisu-susfs, bakasu"
+        description: "JSON array of variants to build, e.g. [\"ksun-legacy\",\"sukisu-susfs\",\"bakasu\"]"
         required: true
         type: string
-        default: "ksun-legacy,sukisu-susfs,bakasu"
+        default: '["ksun-legacy","sukisu-susfs","bakasu"]'
       kernel_repo:
         description: "Kernel source repository"
         required: true
@@ -70,7 +70,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: ${{ fromJSON(format('["{0}"]', replace(inputs.variants, ',', '","'))) }}
+        variant: ${{ fromJSON(inputs.variants) }}
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     env:
