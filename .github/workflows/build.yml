@@ -809,12 +809,12 @@ jobs:
           cp AK3/anykernel.sh "$RUNNER_TEMP/AnyKernel3/anykernel.sh"
           # stamp the variant name into the installer banner
           case "$VARIANT" in
-            ksun-legacy)  KS="KernelSU-Next 4.19.325 (thyme / PixelOS A17)";;
-            ksun-susfs)    KS="KernelSU-Next+SUSFS 4.19.325 (thyme / PixelOS A17)";;
-            bakasu)       KS="BakaSU 4.19.325 (thyme / PixelOS A17)";;
+            ksun-legacy)  KS="KernelSU-Next 4.19.325 (thyme - PixelOS A17)";;
+            ksun-susfs)    KS="KernelSU-Next+SUSFS 4.19.325 (thyme - PixelOS A17)";;
+            bakasu)       KS="BakaSU 4.19.325 (thyme - PixelOS A17)";;
           esac
-          sed -i "s/^kernel.string=.*/kernel.string=$KS/" "$RUNNER_TEMP/AnyKernel3/anykernel.sh"
-          sed -i "s/KernelSU variant : .*/KernelSU variant : $KS/" "$RUNNER_TEMP/AnyKernel3/anykernel.sh"
+          sed -i "s|^kernel.string=.*|kernel.string=$KS|" "$RUNNER_TEMP/AnyKernel3/anykernel.sh"
+          sed -i "s|KernelSU variant : .*|KernelSU variant : $KS|" "$RUNNER_TEMP/AnyKernel3/anykernel.sh"
           # the template's final banner hardcodes the SukiSU manager name;
           # make it variant-correct
           case "$VARIANT" in
@@ -822,7 +822,7 @@ jobs:
             ksun-susfs)    MGR="KernelSU-Next";;
             bakasu)       MGR="BakaSU";;
           esac
-          sed -i "s/Done! Reboot and install the .* manager APK\./Done! Reboot and install the $MGR manager APK./" "$RUNNER_TEMP/AnyKernel3/anykernel.sh"
+          sed -i "s|Done! Reboot and install the .* manager APK\.|Done! Reboot and install the $MGR manager APK.|" "$RUNNER_TEMP/AnyKernel3/anykernel.sh"
           grep -n 'kernel.string=' "$RUNNER_TEMP/AnyKernel3/anykernel.sh"
           SHA8=$(sha256sum out/final/arch/arm64/boot/Image | cut -c1-8)
           python3 AK3/make_ak3_zip.py \
