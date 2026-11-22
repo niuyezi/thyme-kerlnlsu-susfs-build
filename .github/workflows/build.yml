@@ -874,7 +874,7 @@ jobs:
         with:
           name: thyme-pixelos-${{ matrix.variant }}
           path: |
-            thyme-$VARIANT-anykernel3-*.zip
+            thyme-${{ matrix.variant }}-anykernel3-*.zip
             out/final/arch/arm64/boot/Image
             final-defconfig.config
             build-final.log
