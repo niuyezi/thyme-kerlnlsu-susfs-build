@@ -810,7 +810,7 @@ jobs:
           # stamp the variant name into the installer banner
           case "$VARIANT" in
             ksun-legacy)  KS="KernelSU-Next 4.19.325 (thyme / PixelOS A17)";;
-            sukisu-susfs) KS="SukiSU-Nova builtin+SUSFS 4.19.325 (thyme / PixelOS A17)";;
+            ksun-susfs)    KS="KernelSU-Next+SUSFS 4.19.325 (thyme / PixelOS A17)";;
             bakasu)       KS="BakaSU 4.19.325 (thyme / PixelOS A17)";;
           esac
           sed -i "s/^kernel.string=.*/kernel.string=$KS/" "$RUNNER_TEMP/AnyKernel3/anykernel.sh"
@@ -819,7 +819,7 @@ jobs:
           # make it variant-correct
           case "$VARIANT" in
             ksun-legacy)  MGR="KernelSU-Next";;
-            sukisu-susfs) MGR="SukiSU-Nova";;
+            ksun-susfs)    MGR="KernelSU-Next";;
             bakasu)       MGR="BakaSU";;
           esac
           sed -i "s/Done! Reboot and install the .* manager APK\./Done! Reboot and install the $MGR manager APK./" "$RUNNER_TEMP/AnyKernel3/anykernel.sh"
