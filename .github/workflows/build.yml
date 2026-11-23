@@ -604,7 +604,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PYEOF'
           from pathlib import Path
-          p = Path('kernel/sys.c')
+          p = Path('kernel/kernel/sys.c')
           t = p.read_text()
           if 'ksu_handle_prctl' in t:
               print('prctl hook already present'); raise SystemExit(0)
@@ -631,7 +631,7 @@ jobs:
           p.write_text(t)
           print('OK: prctl manual hook added')
           PYEOF
-          grep -q 'ksu_handle_prctl' kernel/sys.c && echo 'verified: prctl hook in sys.c'
+          grep -q 'ksu_handle_prctl' kernel/kernel/sys.c && echo 'verified: prctl hook in sys.c'
 
       - name: '[ksun-susfs] Apply SUSFS kernel patches (pre-adapted for thyme)'
         if: ${{ matrix.variant == 'ksun-susfs' }}
