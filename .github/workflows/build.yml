@@ -654,6 +654,25 @@ jobs:
           grep -q 'susfs_sus_ino_for_show_map_vma' fs/proc/task_mmu.c
           echo "OK: SUSFS pre-adapted patch applied cleanly, susfs sources in place"
 
+      - name: '[ksun-susfs] Accept KernelSU-Next manager signature'
+        if: ${{ matrix.variant == 'ksun-susfs' }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PYEOF'
+          from pathlib import Path
+          p = Path('kernel/drivers/kernelsu/apk_sign.c')
+          t = p.read_text()
+          if '79e590113c4c4c0c222978e413a5faa801666957b1212a328e46c00c69821bf7' in t:
+              print('KSU-Next signature already present'); raise SystemExit(0)
+          anchor = '{EXPECTED_SIZE, EXPECTED_HASH},'
+          assert anchor in t, 'apk_sign_keys table anchor not found'
+          add = anchor + '\n\t{0x3e6, "79e590113c4c4c0c222978e413a5faa801666957b1212a328e46c00c69821bf7"}, // KernelSU-Next official manager'
+          t = t.replace(anchor, add, 1)
+          p.write_text(t)
+          print('OK: KernelSU-Next manager signature added to whitelist')
+          PYEOF
+          grep -q '79e590113c' kernel/drivers/kernelsu/apk_sign.c && echo 'verified: KSU-Next signature in apk_sign.c'
+
       - name: '[ksun-susfs] Prepare config'
         if: ${{ matrix.variant == 'ksun-susfs' }}
         run: |
@@ -933,6 +952,18 @@ jobs:
           find ../out/final/arch/arm64/boot -maxdepth 3 -type f \
             \( -name 'Image' -o -name 'Image.gz' -o -name '*.dtb' -o -name 'dtbo.img' \) \
             -exec sha256sum {} + | tee ../artifacts.sha256
+
+      - name: '[ksun-susfs] Verify KSU hooks linked (System.map)'
+        if: ${{ matrix.variant == 'ksun-susfs' }}
+        run: |
+          set -euo pipefail
+          for sym in ksu_handle_prctl ksu_handle_execveat ksu_handle_execveat_sucompat ksu_handle_faccessat; do
+            if grep -qE " $sym\$" out/final/System.map; then
+              echo "OK: $sym linked"
+            else
+              echo "FATAL: $sym missing from System.map (stripped by LTO?)"; exit 1
+            fi
+          done
 
       - name: Build AnyKernel3 zip
         run: |
