@@ -343,6 +343,13 @@ jobs:
         if: ${{ matrix.variant == 'ksun-legacy' }}
         run: |
           set -euo pipefail
+          # Flicker tree ships a STOCK KernelSU as a REAL dir at drivers/kernelsu.
+          # setup.sh cannot replace it with the KSU-Next symlink, and the 4.19 compat
+          # step then reads the stock dir and dies with 'Kbuild missing'. Remove first.
+          if [ -d kernel/drivers/kernelsu ] && [ ! -L kernel/drivers/kernelsu ]; then
+            echo 'Removing Flicker bundled stock KernelSU at drivers/kernelsu'
+            rm -rf kernel/drivers/kernelsu
+          fi
           curl -fLSs \
             "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/$KSU_REF/kernel/setup.sh" \
             -o ksu_setup.sh
@@ -566,7 +573,7 @@ jobs:
         if: ${{ matrix.variant == 'ksun-susfs' }}
         run: |
           set -euo pipefail
-          # This Flicker tree already bundles a KernelSU-Next copy at
+          # This Flicker tree bundles a STOCK (original) KernelSU at
           # drivers/kernelsu whose source layout matches susfs4ksu's KSU-side
           # patch (10_enable_susfs_for_ksu.patch). KEEP it and apply our
           # pre-adapted version (patches/susfs-ksu-thyme.patch): 4 hunks were
