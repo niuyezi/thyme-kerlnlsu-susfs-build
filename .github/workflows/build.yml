@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       variants:
-        description: "JSON array of variants. Default: ksun-susfs (bundled KernelSU-Next + SUSFS). ksun-legacy = no SUSFS; bakasu = EXPERIMENTAL."
+        description: "JSON array of variants. Default: sukisu-ultra (SukiSU-Ultra builtin + SUSFS v1.5.5). ksun-susfs = bundled KSU-Next+SUSFS; ksun-legacy = no SUSFS; bakasu = EXPERIMENTAL."
         required: true
         type: string
-        default: '["ksun-susfs"]'
+        default: '["sukisu-ultra"]'
       kernel_repo:
         description: "Kernel source repository"
         required: true
@@ -98,6 +98,7 @@ jobs:
             ksun-legacy)   echo " KernelSU-Next legacy (syscall-table hook, NO SUSFS) - VERIFIED path";;
             ksun-susfs)    echo " Bundled KernelSU-Next + SUSFS (susfs4ksu official scheme)";;
             bakasu)        echo " BakaSU (formerly ReSukiSU) - UNVERIFIED, asserts will validate";;
+            sukisu-ultra)  echo " SukiSU-Ultra builtin + SUSFS v1.5.5 (no kprobes, LSM hook via KALLSYMS)";;
             *) echo "Unknown variant: $VARIANT"; exit 1;;
           esac
 
@@ -656,6 +657,88 @@ jobs:
           PY
 
       # =====================================================================
+      # Variant 4: SukiSU-Ultra builtin + SUSFS v1.5.5 (USER-REQUESTED).
+      # builtin branch = SUSFS built-in management, Kconfig has NO kprobes
+      # dependency, LSM hook resolves security_hook_heads at runtime via
+      # KALLSYMS (non-GKI friendly). Replaces the bundled KernelSU entirely.
+      # =====================================================================
+      - name: '[sukisu-ultra] Integrate SukiSU-Ultra builtin'
+        if: ${{ matrix.variant == 'sukisu-ultra' }}
+        run: |
+          set -euo pipefail
+          rm -rf kernel/drivers/kernelsu
+          git clone --depth 1 -b builtin https://github.com/ShirkNeko/SukiSU-Ultra.git kernel/SukiSU-Ultra
+          ln -sf ../SukiSU-Ultra/kernel kernel/drivers/kernelsu
+          test -f kernel/drivers/kernelsu/Makefile
+          grep -q 'obj-$(CONFIG_KSU)' kernel/drivers/Makefile || \
+            printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> kernel/drivers/Makefile
+          grep -q 'drivers/kernelsu/Kconfig' kernel/drivers/Kconfig || \
+            sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' kernel/drivers/Kconfig
+          ls -ld kernel/drivers/kernelsu
+          grep -q 'config KSU_SUSFS' kernel/drivers/kernelsu/Kconfig
+          echo 'OK: SukiSU-Ultra builtin integrated (SUSFS built-in, no kprobes)'
+
+      - name: '[sukisu-ultra] Apply SUSFS kernel patches (pre-adapted for thyme)'
+        if: ${{ matrix.variant == 'sukisu-ultra' }}
+        run: |
+          set -euo pipefail
+          cd kernel
+          git clone --depth 1 -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu "$RUNNER_TEMP/susfs4ksu"
+          cp -r "$RUNNER_TEMP/susfs4ksu/kernel_patches/fs/." fs/
+          cp -r "$RUNNER_TEMP/susfs4ksu/kernel_patches/include/linux/." include/linux/
+          git apply --stat ../patches/susfs-thyme.patch
+          git apply ../patches/susfs-thyme.patch
+          test -f include/linux/susfs.h
+          test -f include/linux/susfs_def.h
+          test -f fs/susfs.c
+          echo "OK: SUSFS v1.5.5 kernel patch applied for sukisu-ultra"
+
+      - name: '[sukisu-ultra] Prepare config'
+        if: ${{ matrix.variant == 'sukisu-ultra' }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          src = Path('input/device.config').read_text(encoding='utf-8', errors='replace').splitlines()
+          def is_ksu(l):
+              s = l.strip()
+              if s.startswith('# ') and ' is not set' in s:
+                  return s.split()[1].startswith('CONFIG_KSU')
+              if '=' in l and not s.startswith('#'):
+                  return s.split('=', 1)[0].startswith('CONFIG_KSU')
+              return False
+          out = [l for l in src if not is_ksu(l)]
+          out = [l for l in out if not l.split('=')[0].strip().startswith('CONFIG_KPM')]
+          # SukiSU-Ultra builtin option set + kernel-side SUSFS options
+          # (AUTO_ADD/TRY_UMOUNT/OVERLAYFS come from susfs-thyme.patch).
+          # KALLSYMS+KALLSYMS_ALL are REQUIRED for non-GKI LSM hook symbol resolution.
+          out += [
+              'CONFIG_KSU=y',
+              'CONFIG_KSU_SUSFS=y',
+              'CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y',
+              'CONFIG_KSU_SUSFS_SUS_PATH=y',
+              'CONFIG_KSU_SUSFS_SUS_MOUNT=y',
+              'CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y',
+              'CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y',
+              'CONFIG_KSU_SUSFS_SUS_KSTAT=y',
+              'CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y',
+              'CONFIG_KSU_SUSFS_TRY_UMOUNT=y',
+              'CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y',
+              'CONFIG_KSU_SUSFS_SPOOF_UNAME=y',
+              '# CONFIG_KSU_SUSFS_ENABLE_LOG is not set',
+              'CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y',
+              'CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y',
+              'CONFIG_KSU_SUSFS_OPEN_REDIRECT=y',
+              'CONFIG_KSU_SUSFS_SUS_MAP=y',
+              'CONFIG_KALLSYMS=y',
+              'CONFIG_KALLSYMS_ALL=y',
+              '# CONFIG_KPM is not set',
+          ]
+          Path('input/device-variant.config').write_text('\n'.join(out) + '\n', encoding='utf-8')
+          print('wrote input/device-variant.config:', len(out), 'lines')
+          PY
+
+      # =====================================================================
       # Variant 3: BakaSU (formerly ReSukiSU) - UNVERIFIED upstream.
       # CI asserts validate the integration; if the ref/branch/hook method
       # does not match, the job fails EARLY with a clear message instead of
@@ -812,6 +895,7 @@ jobs:
             ksun-legacy)  KS="KernelSU-Next 4.19.325 (thyme - PixelOS A17)";;
             ksun-susfs)    KS="KernelSU-Next+SUSFS 4.19.325 (thyme - PixelOS A17)";;
             bakasu)       KS="BakaSU 4.19.325 (thyme - PixelOS A17)";;
+            sukisu-ultra) KS="SukiSU-Ultra+SUSFS 4.19.325 (thyme - PixelOS A17)";;
           esac
           sed -i "s|^kernel.string=.*|kernel.string=$KS|" "$RUNNER_TEMP/AnyKernel3/anykernel.sh"
           sed -i "s|KernelSU variant : .*|KernelSU variant : $KS|" "$RUNNER_TEMP/AnyKernel3/anykernel.sh"
@@ -821,6 +905,7 @@ jobs:
             ksun-legacy)  MGR="KernelSU-Next";;
             ksun-susfs)    MGR="KernelSU-Next";;
             bakasu)       MGR="BakaSU";;
+            sukisu-ultra) MGR="SukiSU-Ultra";;
           esac
           sed -i "s|Done! Reboot and install the .* manager APK\.|Done! Reboot and install the $MGR manager APK.|" "$RUNNER_TEMP/AnyKernel3/anykernel.sh"
           grep -n 'kernel.string=' "$RUNNER_TEMP/AnyKernel3/anykernel.sh"
