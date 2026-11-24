@@ -439,8 +439,7 @@ def patch_reboot(root: pathlib.Path) -> None:
         "{\n"
         "\tstruct pid_namespace *pid_ns = task_active_pid_ns(current);\n"
         "\tchar buffer[256];\n"
-        "\tint ret = 0;\n\n"
-        "\t/* We only trust the superuser with rebooting the system. */\n",
+        "\tint ret = 0;\n\n",
         "#ifdef CONFIG_KSU\n"
         "extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n"
         "#endif\n"
@@ -453,8 +452,7 @@ def patch_reboot(root: pathlib.Path) -> None:
         "#ifdef CONFIG_KSU\n"
         "\tif (system_state == SYSTEM_RUNNING)\n"
         "\t\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n"
-        "#endif\n\n"
-        "\t/* We only trust the superuser with rebooting the system. */\n",
+        "#endif\n\n",
         "kernel/reboot.c reboot syscall",
     )
 
