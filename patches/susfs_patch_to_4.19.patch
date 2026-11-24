@@ -99,7 +99,7 @@ index 94f388e..5daeb5f 100644
 +#ifdef CONFIG_KSU_SUSFS_SUS_PATH
 +	unsigned int	state;
 +#endif // #ifdef CONFIG_KSU_SUSFS_SUS_PATH
- 	unsigned	seq, m_seq;
+ 	unsigned	seq, m_seq, r_seq;
  	int		last_type;
  	unsigned	depth;
 @@ -532,6 +546,9 @@ static void set_nameidata(struct nameidata *p, int dfd, struct filename *name)
@@ -529,13 +529,14 @@ diff --git a/fs/namespace.c b/fs/namespace.c
 index 5e94ec9..9b50196 100644
 --- a/fs/namespace.c
 +++ b/fs/namespace.c
-@@ -26,10 +26,21 @@
+@@ -26,11 +26,22 @@
  #include <linux/bootmem.h>
  #include <linux/task_work.h>
  #include <linux/sched/task.h>
 +#ifdef CONFIG_KSU_SUSFS
 +#include <linux/susfs_def.h>
 +#endif // #ifdef CONFIG_KSU_SUSFS
+ #include <linux/fs_context.h>
  
  #include "pnode.h"
  #include "internal.h"
@@ -725,9 +726,9 @@ index 5e94ec9..9b50196 100644
  	hlist_for_each_entry_rcu(p, head, mnt_hash)
  		if (&p->mnt_parent->mnt == mnt && p->mnt_mountpoint == dentry)
  			return p;
-@@ -953,7 +1109,22 @@ vfs_kern_mount(struct file_system_type *type, int flags, const char *name, void
+@@ -960,20 +1110,34 @@ vfs_kern_mount(struct file_system_type *type, int flags, const char *name, void
  	if (!type)
- 		return ERR_PTR(-ENODEV);
+ 		return ERR_PTR(-EINVAL);
  
 +#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 +	// - We will just stop checking for ksu process if /sdcard/Android is accessible,
@@ -740,14 +741,26 @@ index 5e94ec9..9b50196 100644
 +	}
 +#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 +
- 	mnt = alloc_vfsmnt(name);
-+
+ 	fc = fs_context_for_mount(type, flags);
+ 	if (IS_ERR(fc))
+ 		return ERR_CAST(fc);
+ 
+ 	if (name)
+ 		ret = vfs_parse_fs_string(fc, "source",
+ 					  name, strlen(name));
+ 	if (!ret)
+ 		ret = parse_monolithic_mount_data(fc, data);
+ 	if (!ret)
+ 		mnt = fc_mount(fc);
+ 	else
+ 		mnt = ERR_PTR(ret);
+ 
+ 	put_fs_context(fc);
 +#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 +bypass_orig_flow:
 +#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
- 	if (!mnt)
- 		return ERR_PTR(-ENOMEM);
- 
+ 	return mnt;
+ }
 @@ -1008,7 +1179,40 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
  	struct mount *mnt;
  	int err;
@@ -1215,9 +1228,9 @@ index 9e17d92..61f6ccb 100644
 +#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 +		susfs_sus_kstat_spoof_show_map_vma(inode, &dev, &ino);
 +#endif // #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
- 	}
- 
- 	start = vma->vm_start;
+ #ifdef CONFIG_KSU
+ 		if (dentry) {
+ 			const char *path = (const char *)dentry->d_name.name;
 @@ -844,6 +882,13 @@ static int show_smap(struct seq_file *m, void *v)
  	struct vm_area_struct *vma = v;
  	struct mem_size_stats mss;
@@ -1261,11 +1274,11 @@ index 9e17d92..61f6ccb 100644
  	if (!mm || !mmget_not_zero(mm))
  		goto out;
 @@ -1612,7 +1670,15 @@ static ssize_t pagemap_read(struct file *file, char __user *buf,
- 		ret = down_read_killable(&mm->mmap_sem);
+ 		ret = mmap_read_lock_killable(mm);
  		if (ret)
  			goto out_free;
 +#ifdef CONFIG_KSU_SUSFS_SUS_MAP
-+		vma = find_vma(mm, start_vaddr);
++		struct vm_area_struct *vma = find_vma(mm, start_vaddr);
 +		if (vma && vma->vm_file && SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))
 +			goto bypass_orig_flow;
 +#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
@@ -1273,7 +1286,7 @@ index 9e17d92..61f6ccb 100644
 +#ifdef CONFIG_KSU_SUSFS_SUS_MAP
 +bypass_orig_flow:
 +#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
- 		up_read(&mm->mmap_sem);
+ 		mmap_read_unlock(mm);
  		start_vaddr = end;
  
 diff --git a/fs/proc_namespace.c b/fs/proc_namespace.c
@@ -1949,13 +1962,14 @@ diff --git a/fs/super.c b/fs/super.c
 index 08d39b2..2206fed 100644
 --- a/fs/super.c
 +++ b/fs/super.c
-@@ -36,8 +36,16 @@
+@@ -36,9 +36,17 @@
  #include <linux/fsnotify.h>
  #include <linux/lockdep.h>
  #include <linux/user_namespace.h>
 +#ifdef CONFIG_KSU_SUSFS
 +#include <linux/susfs_def.h>
 +#endif // #ifdef CONFIG_KSU_SUSFS
+ #include <linux/fs_context.h>
  #include "internal.h"
  
 +#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
