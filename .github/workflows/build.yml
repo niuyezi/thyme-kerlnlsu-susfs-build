@@ -733,8 +733,8 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf kernel/drivers/kernelsu
-          git clone --depth 1 -b builtin https://github.com/ShirkNeko/SukiSU-Ultra.git kernel/SukiSU-Ultra
-          ln -sf ../SukiSU-Ultra/kernel kernel/drivers/kernelsu
+          git clone --depth 1 -b builtin https://github.com/SukiSU-Nova/SukiSU-Nova.git kernel/KernelSU
+          ln -sf ../KernelSU/kernel kernel/drivers/kernelsu
           test -f kernel/drivers/kernelsu/Makefile
           grep -q 'obj-$(CONFIG_KSU)' kernel/drivers/Makefile || \
             printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> kernel/drivers/Makefile
@@ -753,21 +753,25 @@ jobs:
           grep -A1 'LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0)' "$KSU_INC" | head -3
           echo 'OK: SukiSU-Ultra builtin integrated (SUSFS built-in, no kprobes)'
 
-      - name: '[sukisu-ultra] Apply SUSFS kernel patches (pre-adapted for thyme)'
+      - name: '[sukisu-ultra] Apply SUSFS 4.19 port + SukiSU inline hooks'
         if: ${{ matrix.variant == 'sukisu-ultra' }}
         run: |
           set -euo pipefail
           cd kernel
-          git clone --depth 1 -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu "$RUNNER_TEMP/susfs4ksu"
-          cp -r "$RUNNER_TEMP/susfs4ksu/kernel_patches/fs/." fs/
-          cp -r "$RUNNER_TEMP/susfs4ksu/kernel_patches/include/linux/." include/linux/
-          git apply --stat ../patches/susfs-thyme.patch
-          git apply ../patches/susfs-thyme.patch
-          test -f include/linux/susfs.h
-          test -f include/linux/susfs_def.h
-          test -f fs/susfs.c
-          echo "OK: SUSFS v1.5.5 kernel patch applied for sukisu-ultra"
-
+          test -f drivers/kernelsu/Kbuild || test -f drivers/kernelsu/Makefile
+          # New SUSFS (supercall ABI) ported to 4.19 by the NonGKI community
+          # (JackA1ltman/NonGKI_Kernel_Build_2nd -> patches/susfs_patch_to_4.19.patch).
+          # Same platform (SM8250/4.19.325) reference: oneplus8t-crdroid11-sukisu.
+          patch -p1 --no-backup-if-mismatch < ../patches/susfs_patch_to_4.19.patch || true
+          # SukiSU inline hooks + 4.19 fixes (kpm access_ok 2->3 args, sulog
+          # nofault wrapper, selinux unused vars) - expects root/KernelSU/kernel.
+          python3 ../scripts/apply_sukisu_susfs_hooks.py .
+          mapfile -t REJS < <(find . -type f -name '*.rej' | sort)
+          if [ "${#REJS[@]}" -gt 0 ]; then
+            for r in "${REJS[@]}"; do echo "===== $r ====="; cat "$r"; done
+            exit 1
+          fi
+          echo 'SUSFS v2.x kernel patches + SukiSU inline hooks applied'
       - name: '[sukisu-ultra] Prepare config'
         if: ${{ matrix.variant == 'sukisu-ultra' }}
         run: |
@@ -805,6 +809,9 @@ jobs:
               'CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y',
               'CONFIG_KSU_SUSFS_OPEN_REDIRECT=y',
               'CONFIG_KSU_SUSFS_SUS_MAP=y',
+              'CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y',
+              'CONFIG_THREAD_INFO_IN_TASK=y',
+              'CONFIG_KSU_FEATURE_ADBROOT=y',
               'CONFIG_KALLSYMS=y',
               'CONFIG_KALLSYMS_ALL=y',
               '# CONFIG_KPM is not set',
