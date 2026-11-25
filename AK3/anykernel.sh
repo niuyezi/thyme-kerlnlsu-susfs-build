@@ -120,7 +120,7 @@ fi;
 #    kernel region (ramdisk + AVB footer) byte-identical.
 #    dd pads the final partial block with zeros, which is exactly the
 #    padding contract required by docs/FLASH.md.
-dd if=$HOME/Image of=$BLOCK bs=4096 seek=1 conv=notrunc 2>/dev/null;
+dd if=$HOME/Image of=$BLOCK bs=4096 seek=1 conv=notrunc,sync 2>/dev/null;
 if [ $? -ne 0 ]; then
   abort "E: failed to write the kernel region";
 fi;
@@ -130,15 +130,21 @@ fi;
 GAP_START=$(( (NEW_SIZE + 4095) / 4096 * 4096 + 4096 ));
 GAP_LEN=$(( 4096 + KERNEL_SIZE - GAP_START ));
 if [ "$GAP_LEN" -gt 0 ]; then
-  dd if=/dev/zero of=$BLOCK bs=1 count=$GAP_LEN seek=$GAP_START conv=notrunc 2>/dev/null;
+  if [ "$((GAP_LEN / 4096))" -gt 0 ]; then
+    dd if=/dev/zero of=$BLOCK bs=4096 count=$((GAP_LEN / 4096)) seek=$((GAP_START / 4096)) conv=notrunc 2>/dev/null;
+  fi
+  if [ "$((GAP_LEN % 4096))" -gt 0 ]; then
+    dd if=/dev/zero of=$BLOCK bs=1 count=$((GAP_LEN % 4096)) seek=$((GAP_START + GAP_LEN / 4096 * 4096)) conv=notrunc 2>/dev/null;
+  fi
 fi;
 
 # 6. Read back and verify the kernel region hash matches Image + padding.
-dd if=$BLOCK bs=4096 skip=1 count=$(( KERNEL_SIZE / 4096 )) 2>/dev/null | sha256sum > /tmp/ak3_written.sha;
+dd if=$BLOCK bs=4096 skip=1 count=$(( KERNEL_SIZE / 4096 + 1 )) 2>/dev/null | head -c $KERNEL_SIZE | sha256sum > /tmp/ak3_written.sha;
 cat $HOME/Image > /tmp/ak3_expected.bin;
 PAD=$(( KERNEL_SIZE - NEW_SIZE ));
 if [ "$PAD" -gt 0 ]; then
-  dd if=/dev/zero bs=1 count=$PAD 2>/dev/null >> /tmp/ak3_expected.bin;
+  dd if=/dev/zero bs=4096 count=$((PAD / 4096)) 2>/dev/null >> /tmp/ak3_expected.bin;
+  dd if=/dev/zero bs=1 count=$((PAD % 4096)) 2>/dev/null >> /tmp/ak3_expected.bin;
 fi;
 sha256sum /tmp/ak3_expected.bin | cut -d' ' -f1 > /tmp/ak3_expected.sha;
 WRITTEN=$(cut -d' ' -f1 /tmp/ak3_written.sha);
