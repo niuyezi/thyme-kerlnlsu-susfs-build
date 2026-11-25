@@ -2008,7 +2008,7 @@ new file mode 100644
 index 0000000..e5e0ace
 --- /dev/null
 +++ b/fs/susfs.c
-@@ -0,0 +1,2642 @@
+@@ -0,0 +1,2644 @@
 +#include <linux/version.h>
 +#include <linux/cred.h>
 +#include <linux/fs.h>
@@ -2090,6 +2090,8 @@ index 0000000..e5e0ace
 +#else
 +#define SUSFS_LOGI(fmt, ...) 
 +#define SUSFS_LOGE(fmt, ...) 
++#define SUSFS_LOGI_RL(fmt, ...) 
++#define SUSFS_LOGE_RL(fmt, ...) 
 +#endif
 +
 +/* selinux hide */
